@@ -2,25 +2,25 @@ import asyncio
 import re
 import time
 import datetime
-import gspread
+import json
+import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 import pytz
-import os
-from oauth2client.service_account import ServiceAccountCredentials
 
 # ==========================================
 # ========== КОНФИГУРАЦИЯ ==================
 # ==========================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = "-1004374514040"
-YOUR_USER_ID = 1442416548
+CHAT_ID = "-1004374514040"          # ID общего чата студии
+YOUR_USER_ID = 1442416548           # Твой Telegram ID (Архив)
+DATA_FILE = "bookings.json"         # Файл для хранения броней
 
-# Список участников студии
+# Список участников студии (ID + имена)
 studio_members = {
     1442416548: "Архив",
     8433779133: "Слендер",
@@ -38,23 +38,27 @@ studio_members = {
 studio_members_ids = list(studio_members.keys())
 
 # ==========================================
-# ========== ПОДКЛЮЧЕНИЕ К GOOGLE ==========
+# ========== РАБОТА С ФАЙЛОМ ===============
 # ==========================================
 
-# Путь к файлу с ключом (должен лежать в папке с ботом)
-SERVICE_ACCOUNT_FILE = 'credentials.json'
-SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+def load_bookings():
+    """Загружает брони из файла при запуске бота"""
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
 
-creds = ServiceAccountCredentials.from_json_keyfile_name(SERVICE_ACCOUNT_FILE, SCOPES)
-client = gspread.authorize(creds)
+def save_bookings(bookings):
+    """Сохраняет брони в файл"""
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(bookings, f, ensure_ascii=False, indent=2)
 
-# Открой таблицу по названию (создай её заранее в Google Диске)
-SHEET_NAME = "Брони студии"  # Название твоей таблицы
-sheet = client.open(SHEET_NAME).sheet1
-
-# Если таблица пустая — добавляем заголовки
-if not sheet.get_all_values():
-    sheet.append_row(["ID", "Дата и время брони", "Клиент", "Услуга", "Данные брони", "ID пользователя"])
+# Загружаем брони при старте
+bookings = load_bookings()
+print(f"📂 Загружено {len(bookings)} броней из файла")
 
 # ==========================================
 # ========== СОСТОЯНИЯ FSM =================
@@ -72,83 +76,85 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # ==========================================
-# ========== ФУНКЦИИ ДЛЯ РАБОТЫ С ТАБЛИЦЕЙ =
+# ========== ФУНКЦИИ ДЛЯ РАБОТЫ С ДАННЫМИ ===
 # ==========================================
 
 def get_all_bookings():
-    """Возвращает все строки из таблицы, кроме заголовка"""
-    rows = sheet.get_all_values()
-    if len(rows) > 1:
-        return rows[1:]  # Пропускаем заголовок
-    return []
+    """Возвращает все брони в виде списка для отображения"""
+    result = []
+    for booking_id, booking_data in bookings.items():
+        # Формат: "Имя, Дата, Время, Услуга|user_id"
+        parts = booking_data.split('|')
+        data = parts[0] if parts else booking_data
+        user_id = parts[1] if len(parts) > 1 else "0"
+        
+        name_match = re.search(r'^([^,]+)', data)
+        client_name = name_match.group(1).strip() if name_match else "Не указан"
+        
+        service_match = re.search(r',\s*(.+)$', data)
+        service = service_match.group(1).strip() if service_match else "Не указана"
+        
+        now = datetime.datetime.now(pytz.timezone('Europe/Moscow')).strftime("%Y-%m-%d %H:%M")
+        result.append([booking_id, now, client_name, service, data, user_id])
+    return result
 
-def add_booking(booking_id, full_booking, user_id):
-    """Добавляет новую бронь в таблицу"""
-    now = datetime.datetime.now(pytz.timezone('Europe/Moscow')).strftime("%Y-%m-%d %H:%M")
-    # Парсим имя клиента из строки брони
-    name_match = re.search(r'^([^,]+)', full_booking)
-    client_name = name_match.group(1).strip() if name_match else "Не указан"
-    # Парсим услугу
-    service_match = re.search(r',\s*(.+)$', full_booking)
-    service = service_match.group(1).strip() if service_match else "Не указана"
-    
-    sheet.append_row([booking_id, now, client_name, service, full_booking, str(user_id)])
+def add_booking(booking_id: str, full_booking: str, user_id: int):
+    """Добавляет бронь в словарь и сохраняет в файл"""
+    bookings[booking_id] = full_booking + f"|{user_id}"
+    save_bookings(bookings)
 
-def delete_booking(booking_id):
-    """Удаляет бронь по ID"""
-    rows = sheet.get_all_values()
-    for i, row in enumerate(rows):
-        if row[0] == booking_id:
-            sheet.delete_rows(i + 1)  # +1 потому что индексация с 0, а строки в Google с 1
-            return True
+def delete_booking(booking_id: str) -> bool:
+    """Удаляет бронь"""
+    if booking_id in bookings:
+        del bookings[booking_id]
+        save_bookings(bookings)
+        return True
     return False
 
-def get_user_bookings(user_id):
-    """Возвращает все брони пользователя"""
-    rows = get_all_bookings()
-    user_bookings = []
-    for row in rows:
-        if row[5] == str(user_id):  # ID пользователя в 6-й колонке (индекс 5)
-            user_bookings.append(row)
-    return user_bookings
+def get_user_bookings(user_id: int):
+    """Возвращает брони пользователя"""
+    result = []
+    for booking_id, booking_data in bookings.items():
+        if f"|{user_id}" in booking_data:
+            data = booking_data.split('|')[0]
+            result.append([booking_id, "", "", "", data, str(user_id)])
+    return result
 
 def get_all_active_bookings():
-    """Возвращает все актуальные брони (сегодня и позже)"""
-    rows = get_all_bookings()
-    active = []
+    """Возвращает актуальные брони (сегодня и позже)"""
     today = datetime.datetime.now(pytz.timezone('Europe/Moscow')).strftime("%d.%m")
-    for row in rows:
-        booking_text = row[4]  # Данные брони в 5-й колонке
-        date_match = re.search(r'(\d{2}\.\d{2})', booking_text)
+    active = []
+    for booking_id, booking_data in bookings.items():
+        data = booking_data.split('|')[0]
+        date_match = re.search(r'(\d{2}\.\d{2})', data)
         if date_match:
-            booking_date = date_match.group(1)
             try:
-                b_day, b_month = map(int, booking_date.split('.'))
+                b_day, b_month = map(int, date_match.group(1).split('.'))
                 t_day, t_month = map(int, today.split('.'))
                 if (b_month > t_month) or (b_month == t_month and b_day >= t_day):
-                    active.append(row)
+                    user_id = booking_data.split('|')[1] if '|' in booking_data else "0"
+                    active.append([booking_id, "", "", "", data, user_id])
             except:
                 pass
     return active
 
-def update_booking(booking_id, new_booking_text):
-    """Обновляет текст брони по ID"""
-    rows = sheet.get_all_values()
-    for i, row in enumerate(rows):
-        if row[0] == booking_id:
-            sheet.update_cell(i + 1, 5, new_booking_text)  # 5-я колонка = данные брони
-            return True
+def update_booking(booking_id: str, new_booking_text: str) -> bool:
+    """Обновляет бронь"""
+    if booking_id in bookings:
+        old_data = bookings[booking_id]
+        user_id = old_data.split('|')[1] if '|' in old_data else "0"
+        bookings[booking_id] = new_booking_text + f"|{user_id}"
+        save_bookings(bookings)
+        return True
     return False
 
-def is_time_conflict(new_start, new_end, exclude_booking_id=None):
+def is_time_conflict(new_start: int, new_end: int, exclude_booking_id: str = None) -> bool:
     """Проверяет пересечение времени с другими бронями"""
-    rows = get_all_bookings()
-    for row in rows:
-        booking_id = row[0]
+    for booking_id, booking_data in bookings.items():
         if exclude_booking_id and booking_id == exclude_booking_id:
             continue
-        booking_text = row[4]
-        time_match = re.search(r'(\d{1,2})-(\d{1,2})', booking_text)
+        data = booking_data.split('|')[0]
+        time_match = re.search(r'(\d{1,2})-(\d{1,2})', data)
         if time_match:
             other_start = int(time_match.group(1))
             other_end = int(time_match.group(2))
@@ -214,7 +220,7 @@ async def start_command(message: types.Message):
 # ========== ОБРАБОТЧИК КНОПОК =============
 # ==========================================
 
-@dp.message(lambda message: True)
+@dp.message(lambda message: message.text and not message.text.startswith('/'))
 async def handle_messages(message: types.Message, state: FSMContext):
     text = message.text
     user_id = message.from_user.id
@@ -320,22 +326,13 @@ async def handle_messages(message: types.Message, state: FSMContext):
 
     elif text.startswith("⏳ Продлить"):
         booking_id = text.replace("⏳ Продлить ", "").strip()
-        # Проверяем, что бронь принадлежит пользователю
-        user_bookings = get_user_bookings(user_id)
-        booking_exists = any(row[0] == booking_id for row in user_bookings)
-        if not booking_exists:
+        if booking_id not in bookings:
             await message.answer("⛔ Это не ваша бронь или она не найдена.")
             return
-        # Получаем текущий текст брони
-        rows = get_all_bookings()
-        booking_data = None
-        for row in rows:
-            if row[0] == booking_id:
-                booking_data = row[4]
-                break
-        if not booking_data:
-            await message.answer("❌ Бронь не найдена.")
+        if f"|{user_id}" not in bookings[booking_id]:
+            await message.answer("⛔ Это не ваша бронь.")
             return
+        booking_data = bookings[booking_id].split('|')[0]
         await message.answer(
             "⏳ Введите новое время окончания в формате ЧЧ-ЧЧ\n"
             f"Пример: 15-18\n\n"
@@ -346,18 +343,13 @@ async def handle_messages(message: types.Message, state: FSMContext):
 
     elif text.startswith("❌ Отменить"):
         booking_id = text.replace("❌ Отменить ", "").strip()
-        user_bookings = get_user_bookings(user_id)
-        booking_exists = any(row[0] == booking_id for row in user_bookings)
-        if not booking_exists:
-            await message.answer("⛔ Это не ваша бронь или она не найдена.")
+        if booking_id not in bookings:
+            await message.answer("❌ Бронь не найдена.")
             return
-        # Получаем текст брони для уведомления
-        rows = get_all_bookings()
-        booking_data = None
-        for row in rows:
-            if row[0] == booking_id:
-                booking_data = row[4]
-                break
+        if f"|{user_id}" not in bookings[booking_id]:
+            await message.answer("⛔ Это не ваша бронь.")
+            return
+        booking_data = bookings[booking_id].split('|')[0]
         if delete_booking(booking_id):
             await message.answer("✅ Бронь успешно отменена.")
             await bot.send_message(CHAT_ID, f"❌ ОТМЕНЕНА БРОНЬ!\n\n{booking_data}\n👤 Отменил: @{username}")
@@ -403,7 +395,6 @@ async def save_booking(message: types.Message, state: FSMContext):
         if user_id in studio_members_ids and 12 <= start_hour < 22 and duration > 4:
             await message.answer(f"⏰ В дневное время (12:00-22:00) участники могут бронировать максимум 4 часа. Вы выбрали {duration} ч.")
             return
-        # Проверка пересечений
         if is_time_conflict(start_hour, end_hour):
             await message.answer("❌ Это время уже занято другой бронью.")
             return
@@ -420,9 +411,30 @@ async def save_booking(message: types.Message, state: FSMContext):
     await message.answer("✅ Бронь сохранена! Спасибо, что выбрали нас ❤️")
     await state.clear()
 
-    who_booked = f"Участник: {studio_members.get(user_id, 'Участник')} (@{username})" if user_id in studio_members_ids else f"Клиент: {message.from_user.first_name} (@{username})"
-    await bot.send_message(CHAT_ID, f"🔔 НОВАЯ БРОНЬ!\n\n{full_booking}\n\n👤 {who_booked}")
-    await bot.send_message(YOUR_USER_ID, f"🔔 ТЕБЕ НОВАЯ ЗАПИСЬ!\n\n👤 {who_booked}\n📋 Данные: {booking_text}\n🎵 Услуга: {selected_service}\n🆔 ID брони: {booking_id}")
+    # ========== КТО ЗАБРОНИРОВАЛ ==========
+    if user_id in studio_members_ids:
+        member_name = studio_members.get(user_id, "Участник")
+        who_booked = f"Участник: {member_name} (@{username})"
+    else:
+        who_booked = f"Клиент: {message.from_user.first_name} (@{username})"
+
+    # ========== УВЕДОМЛЕНИЯ ==========
+    # 1. В общий чат студии
+    await bot.send_message(
+        CHAT_ID,
+        f"🔔 НОВАЯ БРОНЬ!\n\n{full_booking}\n\n👤 {who_booked}"
+    )
+    
+    # 2. ЛИЧНО ТЕБЕ (Архив)
+    await bot.send_message(
+        YOUR_USER_ID,
+        f"🔔 ТЕБЕ НОВАЯ ЗАПИСЬ!\n\n"
+        f"👤 {who_booked}\n"
+        f"📋 Данные: {booking_text}\n"
+        f"🎵 Услуга: {selected_service}\n"
+        f"🆔 ID брони: {booking_id}"
+    )
+
     await message.answer("Главное меню:", reply_markup=get_main_keyboard(user_id))
 
 # ==========================================
@@ -439,16 +451,11 @@ async def extend_booking(message: types.Message, state: FSMContext):
         await message.answer("❌ Ошибка. Попробуйте снова.")
         await state.clear()
         return
-    rows = get_all_bookings()
-    old_booking = None
-    for row in rows:
-        if row[0] == booking_id:
-            old_booking = row[4]
-            break
-    if not old_booking:
+    if booking_id not in bookings:
         await message.answer("❌ Бронь не найдена.")
         await state.clear()
         return
+    old_booking = bookings[booking_id].split('|')[0]
     new_time = message.text.strip()
     time_match = re.search(r'(\d{1,2})-(\d{1,2})', new_time)
     if not time_match:
@@ -468,11 +475,12 @@ async def extend_booking(message: types.Message, state: FSMContext):
     await message.answer("Главное меню:", reply_markup=get_main_keyboard(user_id))
 
 # ==========================================
-# ========== ЗАПУСК ========================
+# ========== ЗАПУСК БОТА ===================
 # ==========================================
 
 async def main():
-    print("🤖 Бот с Google Таблицами запущен!")
+    print("🤖 Бот запущен!")
+    print(f"📂 Загружено броней: {len(bookings)}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
