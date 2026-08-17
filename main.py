@@ -8,8 +8,20 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 import pytz
+
+# ==========================================
+# ========== АНТИФЛУД =========
+# ==========================================
+
+try:
+    from shieldgram import Shield
+    shield = Shield()
+    print("✅ Shieldgram (антифлуд) подключен!")
+except ImportError:
+    print("⚠️ Shieldgram не установлен. Установи: pip install shieldgram")
+    shield = None
 
 # ==========================================
 # ========== КОНФИГУРАЦИЯ ==================
@@ -17,6 +29,7 @@ import pytz
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATA_FILE = "bookings.json"
+YOUR_USER_ID = 1442416548
 
 studio_members = {
     1442416548: "Архив",
@@ -60,8 +73,8 @@ print(f"📂 Загружено {len(bookings)} броней")
 
 class BookingStates(StatesGroup):
     waiting_for_booking = State()
-    waiting_for_extend = State()
-    waiting_for_cancel = State()
+    waiting_for_booking_action = State()
+    waiting_for_question = State()
 
 # ==========================================
 # ========== ИНИЦИАЛИЗАЦИЯ БОТА ============
@@ -128,69 +141,101 @@ def update_booking(booking_id: str, new_booking_text: str) -> bool:
         return True
     return False
 
-def is_time_conflict(new_start: int, new_end: int, exclude_booking_id: str = None) -> bool:
+def is_time_conflict(new_start: int, new_end: int, user_id: int, exclude_booking_id: str = None) -> bool:
     for booking_id, booking_data in bookings.items():
         if exclude_booking_id and booking_id == exclude_booking_id:
             continue
+        
         data = booking_data.split('|')[0]
         time_match = re.search(r'(\d{1,2})-(\d{1,2})', data)
         if time_match:
             other_start = int(time_match.group(1))
             other_end = int(time_match.group(2))
-            if not (new_end <= other_start or new_start >= other_end):
-                return True
+            
+            if new_start < other_end and new_end > other_start:
+                owner_id = int(booking_data.split('|')[1]) if '|' in booking_data else 0
+                
+                if user_id in studio_members_ids:
+                    return True
+                else:
+                    if owner_id in studio_members_ids:
+                        delete_booking(booking_id)
+                        for member_id in studio_members_ids:
+                            try:
+                                bot.loop.create_task(
+                                    bot.send_message(
+                                        member_id,
+                                        f"⚠️ ТУПЫЕ НИГЕРЫ КЛИЕНТ ЗАЛЕЗ НА ТВОЮ БРОНЬ!\n\n{data}"
+                                    )
+                                )
+                            except:
+                                pass
+                        return False
+                    else:
+                        return True
     return False
 
 # ==========================================
-# ========== КЛАВИАТУРЫ ====================
+# ========== INLINE-КЛАВИАТУРЫ =============
 # ==========================================
 
-def get_main_keyboard(user_id: int) -> ReplyKeyboardMarkup:
-    keyboard = [
-        [KeyboardButton(text="💰 Цены")],
-        [KeyboardButton(text="📅 Забронировать")],
-        [KeyboardButton(text="📋 Мои брони")],
-        [KeyboardButton(text="ℹ️ Информация")]
+def get_main_menu(user_id: int) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="🔥 Цены", callback_data="prices")],
+        [InlineKeyboardButton(text="📅 Забронировать", callback_data="book")],
+        [InlineKeyboardButton(text="📋 Мои брони", callback_data="my_bookings")],
+        [InlineKeyboardButton(text="✨ Информация", callback_data="info")],
+        [InlineKeyboardButton(text="❓ Вопросы", callback_data="questions")]
     ]
     if user_id in studio_members_ids:
-        keyboard.append([KeyboardButton(text="📋 Все записи")])
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+        buttons.append([InlineKeyboardButton(text="📋 Все записи", callback_data="all_bookings")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_services_keyboard() -> ReplyKeyboardMarkup:
-    keyboard = [
-        [KeyboardButton(text="🎤 1 час записи - 500р")],
-        [KeyboardButton(text="🌙 Ночь на студии - 3000р")],
-        [KeyboardButton(text="🎧 Сведение + мастеринг - 1500р")],
-        [KeyboardButton(text="🎵 Трек под ключ - 3000р")],
-        [KeyboardButton(text="🎬 Съемка клипа + монтаж - 5500р")],
-        [KeyboardButton(text="🔙 Главное меню")]
+def get_services_menu(user_id: int) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="🎤 1 час записи - 500р", callback_data="service_1hour")],
+        [InlineKeyboardButton(text="🌙 Ночь на студии - 3000р", callback_data="service_night")],
+        [InlineKeyboardButton(text="🎧 Сведение + мастеринг - 1500р", callback_data="service_master")],
+        [InlineKeyboardButton(text="🎵 Трек под ключ - 3000р", callback_data="service_track")],
+        [InlineKeyboardButton(text="🎬 Съемка клипа + монтаж - 5500р", callback_data="service_clip")]
     ]
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+    if user_id in studio_members_ids:
+        buttons.append([InlineKeyboardButton(text="🎙️ Запись для участников", callback_data="service_member")])
+    buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_info_keyboard() -> ReplyKeyboardMarkup:
-    keyboard = [
-        [KeyboardButton(text="📖 О нас")],
-        [KeyboardButton(text="🎛️ Наша аппаратура")],
-        [KeyboardButton(text="🔙 Главное меню")]
+def get_info_menu() -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="🎯 О нас", callback_data="about")],
+        [InlineKeyboardButton(text="🎛️ Наша аппаратура", callback_data="equipment")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")]
     ]
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_back_keyboard() -> ReplyKeyboardMarkup:
-    keyboard = [
-        [KeyboardButton(text="🔙 Главное меню")]
+def get_booking_action_menu(booking_id: str) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="⏳ +10 мин", callback_data=f"extend_{booking_id}_10")],
+        [InlineKeyboardButton(text="⏳ +30 мин", callback_data=f"extend_{booking_id}_30")],
+        [InlineKeyboardButton(text="⏳ +1 час", callback_data=f"extend_{booking_id}_60")],
+        [InlineKeyboardButton(text="⏳ +2 часа", callback_data=f"extend_{booking_id}_120")],
+        [InlineKeyboardButton(text="⏳ +3 часа", callback_data=f"extend_{booking_id}_180")],
+        [InlineKeyboardButton(text="❌ Отменить", callback_data=f"cancel_{booking_id}")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="my_bookings")]
     ]
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_extend_keyboard(booking_id: str) -> ReplyKeyboardMarkup:
-    keyboard = [
-        [KeyboardButton(text=f"⏳ +10 мин {booking_id}")],
-        [KeyboardButton(text=f"⏳ +30 мин {booking_id}")],
-        [KeyboardButton(text=f"⏳ +1 час {booking_id}")],
-        [KeyboardButton(text=f"⏳ +2 часа {booking_id}")],
-        [KeyboardButton(text=f"⏳ +3 часа {booking_id}")],
-        [KeyboardButton(text="🔙 Главное меню")]
+def get_cancel_menu(booking_id: str) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="✅ Да, отменить", callback_data=f"confirm_cancel_{booking_id}")],
+        [InlineKeyboardButton(text="❌ Нет, вернуться", callback_data=f"back_to_booking_{booking_id}")]
     ]
-    return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_back_menu() -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # ==========================================
 # ========== КОМАНДА /START ================
@@ -200,149 +245,74 @@ def get_extend_keyboard(booking_id: str) -> ReplyKeyboardMarkup:
 async def start_command(message: types.Message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name
+    
     await message.answer(
-        f"Привет, {first_name}! Очень рады, что ты выбрал именно нас. Надеюсь, ты будешь читать про бывшую и таблетки 😄",
-        reply_markup=get_main_keyboard(user_id)
+        f"🔥 Привет, {first_name}! ✨ Очень рады, что ты выбрал именно нас. Надеюсь, ты будешь читать про бывшую и таблетки 😄💫",
+        reply_markup=get_main_menu(user_id)
     )
 
 # ==========================================
-# ========== ОБРАБОТЧИК ВСЕХ СООБЩЕНИЙ =====
+# ========== ОБРАБОТЧИК INLINE-КНОПОК ======
 # ==========================================
 
-@dp.message()
-async def handle_all_messages(message: types.Message, state: FSMContext):
-    text = message.text
-    user_id = message.from_user.id
-    username = message.from_user.username or message.from_user.first_name
+@dp.callback_query()
+async def handle_callback(callback: CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    username = callback.from_user.username or callback.from_user.first_name
+    data = callback.data
     
-    current_state = await state.get_state()
-    
-    # ===== ЕСЛИ ПОЛЬЗОВАТЕЛЬ ВВОДИТ БРОНЬ =====
-    if current_state == BookingStates.waiting_for_booking:
-        await save_booking(message, state)
+    if data == "main_menu":
+        await callback.message.edit_text(
+            "🔥 Главное меню: 💫",
+            reply_markup=get_main_menu(user_id)
+        )
+        await callback.answer()
         return
     
-    # ===== ЕСЛИ ПОЛЬЗОВАТЕЛЬ ВЫБИРАЕТ БРОНЬ ДЛЯ ОТМЕНЫ =====
-    if current_state == BookingStates.waiting_for_cancel:
-        if text in bookings:
-            booking_id = text
-            booking_data = bookings[booking_id].split('|')[0]
-            if delete_booking(booking_id):
-                await message.answer("✅ Бронь успешно отменена!")
-                for member_id in studio_members_ids:
-                    try:
-                        await bot.send_message(
-                            member_id,
-                            f"❌ ТУПЫЕ НИГЕРЫ ОТМЕНИЛИ БРОНЬ!\n\n{booking_data}\n👤 Отменил: @{username}"
-                        )
-                    except:
-                        pass
-            await state.clear()
-            await message.answer("Главное меню:", reply_markup=get_main_keyboard(user_id))
-            return
-        else:
-            await message.answer("❌ Выберите бронь из списка кнопок.")
-            return
-
-    # ==========================================
-    # ========== КНОПКА "Главное меню" =========
-    # ==========================================
-    
-    if text == "🔙 Главное меню":
-        await state.clear()
-        await message.answer("Главное меню:", reply_markup=get_main_keyboard(user_id))
+    if data == "prices":
+        await callback.message.edit_text(
+            "🔥 НАШИ ЦЕНЫ 🔥\n\n"
+            "🎤 1 час записи - 500р (неограниченное кол-во человек)\n"
+            "🌙 Ночь на студии - 3000р (с 22:00 до 10:00)\n"
+            "🎧 Сведение + мастеринг - 1500р\n"
+            "🎵 Трек под ключ - 3000р (Бит + текст + сведение + мастеринг)\n"
+            "🎬 Съемка клипа + монтаж - 5500р",
+            reply_markup=get_back_menu()
+        )
+        await callback.answer()
         return
-
-    # ==========================================
-    # ========== ОБЫЧНЫЕ КНОПКИ ================
-    # ==========================================
-
-    # === КНОПКА "💰 Цены" ===
-    if text == "💰 Цены":
-        await message.answer(
-            "💲 Наши цены 💲\n\n"
-            "• 1 час записи - 500р (неограниченное кол-во человек)\n"
-            "• Ночь на студии - 3000р (с 22:00 до 10:00)\n"
-            "• Сведение + мастеринг - 1500р\n"
-            "• Трек под ключ - 3000р (Бит + текст + сведение + мастеринг)\n"
-            "• Съемка клипа + монтаж - 5500р\n\n"
-            "Для бронирования нажми кнопку '📅 Забронировать'",
-            reply_markup=get_back_keyboard()
+    
+    if data == "book":
+        await callback.message.edit_text(
+            "💫 Выбери услугу для бронирования: 🎯",
+            reply_markup=get_services_menu(user_id)
         )
-
-    # === КНОПКА "📅 Забронировать" ===
-    elif text == "📅 Забронировать":
-        await message.answer(
-            "💲 Выбери услугу для бронирования 💲\n\nНажми на кнопку с нужной услугой:",
-            reply_markup=get_services_keyboard()
+        await callback.answer()
+        return
+    
+    if data == "info":
+        await callback.message.edit_text(
+            "✨ Раздел информации: 📋",
+            reply_markup=get_info_menu()
         )
-
-    # === ВЫБОР УСЛУГИ ===
-    elif text in ["🎤 1 час записи - 500р", "🌙 Ночь на студии - 3000р"]:
-        await state.update_data(selected_service=text)
-        if text == "🎤 1 час записи - 500р":
-            await message.answer(
-                f"✅ Выбрана услуга: {text}\n\n"
-                "Введите данные брони в формате:\n"
-                "Имя, Дата (ДД.ММ), Время (ЧЧ-ЧЧ)\n\n"
-                "Пример: Анна, 31.12, 15-18",
-                reply_markup=get_back_keyboard()
-            )
-        else:
-            await message.answer(
-                f"✅ Выбрана услуга: {text}\n\n"
-                "Введите данные брони в формате:\n"
-                "Имя, Дата начала-Дата окончания (ДД.ММ-ДД.ММ)\n\n"
-                "Пример: Анна, 31.12-01.01",
-                reply_markup=get_back_keyboard()
-            )
-        await state.set_state(BookingStates.waiting_for_booking)
-
-    # === ВЫБОР УСЛУГИ (сведение/трек/клип) ===
-    elif text in ["🎧 Сведение + мастеринг - 1500р", "🎵 Трек под ключ - 3000р", "🎬 Съемка клипа + монтаж - 5500р"]:
-        await message.answer(
-            f"✅ Выбрана услуга: {text}\n\n"
-            "📞 Для оформления этой услуги свяжитесь с нашим администратором:\n"
-            "@PAKAEM_BETM0\n\n"
-            "Он уточнит все детали, сроки и стоимость.\n"
-            "Напишите ему, пожалуйста, прямо сейчас! 👆",
-            reply_markup=get_back_keyboard()
+        await callback.answer()
+        return
+    
+    if data == "about":
+        await callback.message.edit_text(
+            "🎯 О СТУДИИ 'БЫВШАЯ И ТАБЛЕТКИ' 🎯\n\n"
+            "✨ Современная студия звукозаписи.\n"
+            "📍 Находимся по адресу: г. Йошкар-Ола, ул. Первомайская, д. 115ж.\n\n"
+            "📩 TGK - @euphoria_session\n\n"
+            "🔥 Ждём вас! 🎤",
+            reply_markup=get_back_menu()
         )
-
-    # === КНОПКА "📋 Мои брони" ===
-    elif text == "📋 Мои брони":
-        user_bookings = get_user_bookings(user_id)
-        if not user_bookings:
-            await message.answer("📭 У вас нет активных броней.", reply_markup=get_main_keyboard(user_id))
-        else:
-            for booking_id, booking_data in user_bookings:
-                await message.answer(
-                    f"📋 Ваша бронь:\n{booking_data}",
-                    reply_markup=get_extend_keyboard(booking_id)
-                )
-
-    # === КНОПКА "ℹ️ Информация" ===
-    elif text == "ℹ️ Информация":
-        await message.answer(
-            "📋 Раздел информации:\n\nВыберите, что вас интересует:",
-            reply_markup=get_info_keyboard()
-        )
-
-    # === КНОПКА "📖 О нас" ===
-    elif text == "📖 О нас":
-        await message.answer(
-            "🎵 О студии 'Бывшая и таблетки'\n\n"
-            "Современная студия звукозаписи.\n"
-            "Находимся по адресу: г. Йошкар-Ола, ул. Первомайская, д. 115ж.\n\n"
-            "📍 TGK - @euphoria_session\n\n"
-            "Ждём вас! 🎧",
-            reply_markup=get_back_keyboard()
-        )
-
-    # === КНОПКА "🎛️ Наша аппаратура" ===
-    elif text == "🎛️ Наша аппаратура":
-        await message.answer(
-            "🎛️ АППАРАТУРА СТУДИИ\n\n"
+        await callback.answer()
+        return
+    
+    if data == "equipment":
+        await callback.message.edit_text(
+            "🎛️ АППАРАТУРА СТУДИИ 🎛️\n\n"
             "🎤 Микрофон:\n• Neumann TLM 103\n\n"
             "🎧 Наушники:\n• Beyerdynamic DT 900 Pro X (открытые)\n• Beyerdynamic DT 700 Pro X (закрытые)\n\n"
             "🔊 Мониторы:\n• KRK Rokit 5 G4\n\n"
@@ -350,126 +320,326 @@ async def handle_all_messages(message: types.Message, state: FSMContext):
             "💻 ПК:\n• AMD Ryzen 5 1600\n• 16 GB RAM\n• SSD 512 GB\n\n"
             "🧩 Плагины:\n• SoundToys\n• Waves\n• FabFilter\n• И другие\n\n"
             "📶 Быстрый Wi-Fi — если потребуется что-то докачать",
-            reply_markup=get_back_keyboard()
+            reply_markup=get_back_menu()
         )
-
-    # === КНОПКА "📋 Все записи" ===
-    elif text == "📋 Все записи":
+        await callback.answer()
+        return
+    
+    if data == "my_bookings":
+        user_bookings = get_user_bookings(user_id)
+        if not user_bookings:
+            await callback.message.edit_text(
+                "📭 У вас нет активных броней. 💫",
+                reply_markup=get_back_menu()
+            )
+        else:
+            text = "📋 ВАШИ БРОНИ: 🔥\n\n"
+            buttons = []
+            for booking_id, booking_data in user_bookings:
+                date_match = re.search(r'(\d{2}\.\d{2})', booking_data)
+                date_str = date_match.group(1) if date_match else "??.??"
+                service_match = re.search(r',\s*(.+)$', booking_data)
+                service_str = service_match.group(1).strip() if service_match else "Услуга"
+                
+                if "1 час записи" in service_str:
+                    service_short = "🎤 Запись"
+                elif "Ночь" in service_str:
+                    service_short = "🌙 Ночь"
+                elif "Запись для участников" in service_str:
+                    service_short = "🎙️ Участник"
+                else:
+                    service_short = service_str[:15] + "..." if len(service_str) > 15 else service_str
+                
+                buttons.append([InlineKeyboardButton(
+                    text=f"📅 {date_str} | {service_short}",
+                    callback_data=f"booking_{booking_id}"
+                )])
+            
+            buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")])
+            await callback.message.edit_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+            )
+        await callback.answer()
+        return
+    
+    if data == "all_bookings":
         if user_id not in studio_members_ids:
-            await message.answer("⛔ У вас нет доступа к этой команде.", reply_markup=get_main_keyboard(user_id))
+            await callback.answer("⛔ У вас нет доступа.")
             return
         all_bookings = get_all_active_bookings()
         if not all_bookings:
-            await message.answer("📭 Нет актуальных броней.", reply_markup=get_main_keyboard(user_id))
+            await callback.message.edit_text(
+                "📭 Нет актуальных броней. 💫",
+                reply_markup=get_back_menu()
+            )
         else:
-            result = "📋 АКТУАЛЬНЫЕ БРОНИ (сегодня и позже):\n\n"
+            result = "📋 АКТУАЛЬНЫЕ БРОНИ (сегодня и позже): 🔥\n\n"
             for i, row in enumerate(all_bookings[:10], 1):
                 result += f"{i}. {row[1]}\n\n"
-            await message.answer(result, reply_markup=get_back_keyboard())
-
-    # === ПРОДЛЕНИЕ БРОНИ ===
-    elif text.startswith("⏳ +"):
-        parts = text.split(" ")
-        if len(parts) >= 3:
-            amount_str = parts[1]
-            unit = parts[2]
-            booking_id = parts[3]
-            
-            if "мин" in unit:
-                minutes = int(amount_str)
-            elif "час" in unit or "часа" in unit:
-                minutes = int(amount_str) * 60
-            else:
-                await message.answer("❌ Неизвестный формат продления.")
-                return
-            
-            if booking_id not in bookings:
-                await message.answer("❌ Бронь не найдена.")
-                return
-            
-            if f"|{user_id}" not in bookings[booking_id]:
-                await message.answer("⛔ Это не ваша бронь.")
-                return
-            
-            old_booking = bookings[booking_id].split('|')[0]
-            time_match = re.search(r'(\d{1,2})-(\d{1,2})', old_booking)
-            if not time_match:
-                await message.answer("❌ Не удалось определить время брони.")
-                return
-            
-            start_hour = int(time_match.group(1))
-            end_hour = int(time_match.group(2))
-            new_end_hour = end_hour + (minutes / 60)
-            
-            if new_end_hour > 24:
-                await message.answer("❌ Нельзя продлить бронь за пределы суток.")
-                return
-            
-            new_end_hour = int(new_end_hour)
-            if new_end_hour >= 24:
-                await message.answer("❌ Нельзя продлить бронь за пределы суток.")
-                return
-            
-            if is_time_conflict(start_hour, new_end_hour, booking_id):
-                await message.answer("❌ Это время уже занято другой бронью.")
-                return
-            
-            new_booking = re.sub(r'\d{1,2}-\d{1,2}', f"{start_hour}-{new_end_hour}", old_booking)
-            update_booking(booking_id, new_booking)
-            
-            await message.answer(f"✅ Бронь продлена на {minutes} минут!")
-            
-            for member_id in studio_members_ids:
-                try:
-                    await bot.send_message(
-                        member_id,
-                        f"⏳ ТУПЫЕ НИГЕРЫ ПРОДЛИЛИ БРОНЬ!\n\n{new_booking}\n👤 Продлил: @{username}"
-                    )
-                except:
-                    pass
-            
-            await message.answer(
-                f"📋 Обновлённая бронь:\n{new_booking}",
-                reply_markup=get_main_keyboard(user_id)
+            await callback.message.edit_text(
+                result,
+                reply_markup=get_back_menu()
             )
+        await callback.answer()
+        return
+    
+    if data == "questions":
+        await state.set_state(BookingStates.waiting_for_question)
+        await callback.message.edit_text(
+            "📝 Напишите ваш вопрос. ✨ Администратор свяжется с вами в ближайшее время. 💫\n\n"
+            "Для отмены нажмите кнопку '🔙 Назад'.",
+            reply_markup=get_back_menu()
+        )
+        await callback.answer()
+        return
+    
+    if data.startswith("service_"):
+        service_map = {
+            "service_1hour": "🎤 1 час записи - 500р",
+            "service_night": "🌙 Ночь на студии - 3000р",
+            "service_master": "🎧 Сведение + мастеринг - 1500р",
+            "service_track": "🎵 Трек под ключ - 3000р",
+            "service_clip": "🎬 Съемка клипа + монтаж - 5500р",
+            "service_member": "🎙️ Запись для участников"
+        }
+        
+        selected_service = service_map.get(data)
+        if not selected_service:
+            await callback.answer("❌ Услуга не найдена")
             return
-
-    # === ОТМЕНА БРОНИ ===
-    elif text.startswith("❌ Отменить"):
-        booking_id = text.replace("❌ Отменить ", "").strip()
+        
+        if data == "service_member" and user_id not in studio_members_ids:
+            await callback.answer("⛔ Эта услуга только для участников студии.")
+            return
+        
+        await state.update_data(selected_service=selected_service)
+        
+        if data in ["service_1hour", "service_member"]:
+            await callback.message.edit_text(
+                f"✅ Выбрана услуга: {selected_service} 🔥\n\n"
+                "📝 Введите данные брони в формате:\n"
+                "Имя, Дата (ДД.ММ), Время (ЧЧ-ЧЧ)\n\n"
+                "Пример: Анна, 11.08, 15-18 💫",
+                reply_markup=get_back_menu()
+            )
+        elif data == "service_night":
+            await callback.message.edit_text(
+                f"✅ Выбрана услуга: {selected_service} 🌙\n\n"
+                "📝 Введите данные брони в формате:\n"
+                "Имя, Дата начала-Дата окончания (ДД.ММ-ДД.ММ)\n\n"
+                "Пример: Анна, 11.08-12.08 💫",
+                reply_markup=get_back_menu()
+            )
+        else:
+            await callback.message.edit_text(
+                f"✅ Выбрана услуга: {selected_service} 🎯\n\n"
+                "📩 Для оформления этой услуги свяжитесь с нашим администратором:\n"
+                "@PAKAEM_BETM0 🔥\n\n"
+                "✨ Он уточнит все детали, сроки и стоимость.\n"
+                "Напишите ему, пожалуйста, прямо сейчас! 👆",
+                reply_markup=get_back_menu()
+            )
+            await state.clear()
+            await callback.answer()
+            return
+        
+        await state.set_state(BookingStates.waiting_for_booking)
+        await callback.answer()
+        return
+    
+    if data.startswith("booking_"):
+        booking_id = data.replace("booking_", "")
+        booking_data = None
+        for bid, bdata in bookings.items():
+            if bid == booking_id:
+                booking_data = bdata.split('|')[0]
+                break
+        
+        if not booking_data:
+            await callback.answer("❌ Бронь не найдена.")
+            return
+        
+        await state.update_data(selected_booking_id=booking_id)
+        await callback.message.edit_text(
+            f"📋 Выбрана бронь: 🔥\n{booking_data}\n\nВыберите действие: 💫",
+            reply_markup=get_booking_action_menu(booking_id)
+        )
+        await callback.answer()
+        return
+    
+    if data.startswith("extend_"):
+        parts = data.split("_")
+        booking_id = parts[1]
+        minutes = int(parts[2])
         
         if booking_id not in bookings:
-            await message.answer("❌ Бронь не найдена.")
+            await callback.answer("❌ Бронь не найдена.")
             return
         
         if f"|{user_id}" not in bookings[booking_id]:
-            await message.answer("⛔ Это не ваша бронь.")
+            await callback.answer("⛔ Это не ваша бронь.")
+            return
+        
+        old_booking = bookings[booking_id].split('|')[0]
+        time_match = re.search(r'(\d{1,2})-(\d{1,2})', old_booking)
+        if not time_match:
+            await callback.answer("❌ Не удалось определить время брони.")
+            return
+        
+        start_hour = int(time_match.group(1))
+        end_hour = int(time_match.group(2))
+        new_end_hour = end_hour + (minutes / 60)
+        
+        if new_end_hour > 24:
+            await callback.answer("❌ Нельзя продлить бронь за пределы суток.")
+            return
+        
+        new_end_hour = int(new_end_hour)
+        if new_end_hour >= 24:
+            await callback.answer("❌ Нельзя продлить бронь за пределы суток.")
+            return
+        
+        if is_time_conflict(start_hour, new_end_hour, user_id, booking_id):
+            await callback.answer("❌ Это время уже занято другой бронью.")
+            return
+        
+        new_booking = re.sub(r'\d{1,2}-\d{1,2}', f"{start_hour}-{new_end_hour}", old_booking)
+        update_booking(booking_id, new_booking)
+        
+        await callback.message.edit_text(
+            f"✅ Бронь продлена на {minutes} минут! ⏳\n\n📋 Обновлённая бронь: 🔥\n{new_booking}",
+            reply_markup=get_booking_action_menu(booking_id)
+        )
+        
+        for member_id in studio_members_ids:
+            try:
+                await bot.send_message(
+                    member_id,
+                    f"⏳ ТУПЫЕ НИГЕРЫ ПРОДЛИЛИ БРОНЬ! 🔥\n\n{new_booking}\n👤 Продлил: @{username}"
+                )
+            except:
+                pass
+        
+        await callback.answer()
+        return
+    
+    if data.startswith("cancel_"):
+        booking_id = data.replace("cancel_", "")
+        await callback.message.edit_text(
+            "❓ Вы уверены, что хотите отменить эту бронь? ⚠️",
+            reply_markup=get_cancel_menu(booking_id)
+        )
+        await callback.answer()
+        return
+    
+    if data.startswith("confirm_cancel_"):
+        booking_id = data.replace("confirm_cancel_", "")
+        
+        if booking_id not in bookings:
+            await callback.answer("❌ Бронь не найдена.")
+            return
+        
+        if f"|{user_id}" not in bookings[booking_id]:
+            await callback.answer("⛔ Это не ваша бронь.")
             return
         
         booking_data = bookings[booking_id].split('|')[0]
+        delete_booking(booking_id)
         
-        if delete_booking(booking_id):
-            await message.answer("✅ Бронь успешно отменена!")
-            for member_id in studio_members_ids:
-                try:
-                    await bot.send_message(
-                        member_id,
-                        f"❌ ТУПЫЕ НИГЕРЫ ОТМЕНИЛИ БРОНЬ!\n\n{booking_data}\n👤 Отменил: @{username}"
-                    )
-                except:
-                    pass
+        await callback.message.edit_text(
+            f"✅ Бронь успешно отменена! ❌\n\n{booking_data}",
+            reply_markup=get_back_menu()
+        )
+        
+        for member_id in studio_members_ids:
+            try:
+                await bot.send_message(
+                    member_id,
+                    f"❌ ТУПЫЕ НИГЕРЫ ОТМЕНИЛИ БРОНЬ! 🔥\n\n{booking_data}\n👤 Отменил: @{username}"
+                )
+            except:
+                pass
+        
+        await callback.answer()
+        return
+    
+    if data.startswith("back_to_booking_"):
+        booking_id = data.replace("back_to_booking_", "")
+        booking_data = None
+        for bid, bdata in bookings.items():
+            if bid == booking_id:
+                booking_data = bdata.split('|')[0]
+                break
+        
+        if booking_data:
+            await callback.message.edit_text(
+                f"📋 Выбрана бронь: 🔥\n{booking_data}\n\nВыберите действие: 💫",
+                reply_markup=get_booking_action_menu(booking_id)
+            )
         else:
-            await message.answer("❌ Ошибка при отмене брони.")
-        
-        await message.answer("Главное меню:", reply_markup=get_main_keyboard(user_id))
+            await callback.message.edit_text(
+                "❌ Бронь не найдена. 💫",
+                reply_markup=get_back_menu()
+            )
+        await callback.answer()
+        return
+    
+    if data == "back":
+        await state.clear()
+        await callback.message.edit_text(
+            "🔥 Главное меню: 💫",
+            reply_markup=get_main_menu(user_id)
+        )
+        await callback.answer()
         return
 
-    # === НЕИЗВЕСТНАЯ КОМАНДА ===
-    else:
-        await message.answer(
-            "❌ Неизвестная команда. Используйте кнопки меню.",
-            reply_markup=get_main_keyboard(user_id)
+# ==========================================
+# ========== ОБРАБОТКА ТЕКСТОВЫХ СООБЩЕНИЙ =
+# ==========================================
+
+@dp.message()
+async def handle_messages(message: types.Message, state: FSMContext):
+    text = message.text
+    user_id = message.from_user.id
+    
+    current_state = await state.get_state()
+    
+    if current_state == BookingStates.waiting_for_question:
+        question_text = text
+        user_name = message.from_user.full_name or message.from_user.username or "Пользователь"
+        user_id_sender = message.from_user.id
+        username_sender = message.from_user.username or "нет_юзера"
+        
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(
+                    text="📩 Ответить в ЛС",
+                    url=f"tg://user?id={user_id_sender}"
+                )]
+            ]
         )
+        
+        await bot.send_message(
+            chat_id=YOUR_USER_ID,
+            text=f"❓ НОВЫЙ ВОПРОС! 🔥\n\n"
+                 f"👤 От: {user_name}\n"
+                 f"🆔 ID: {user_id_sender}\n"
+                 f"📌 @{username_sender}\n\n"
+                 f"📝 Вопрос: ✨\n{question_text}",
+            reply_markup=keyboard
+        )
+        
+        await message.answer(
+            "✅ Ваш вопрос отправлен администратору. 💫 Ожидайте ответа! 🔥",
+            reply_markup=get_main_menu(user_id)
+        )
+        await state.clear()
+        return
+    
+    if current_state == BookingStates.waiting_for_booking:
+        await save_booking(message, state)
+        return
 
 # ==========================================
 # ========== СОХРАНЕНИЕ БРОНИ ==============
@@ -483,38 +653,53 @@ async def save_booking(message: types.Message, state: FSMContext):
     selected_service = data.get("selected_service")
 
     if not selected_service:
-        await message.answer("❌ Ошибка. Выберите услугу заново.", reply_markup=get_main_keyboard(user_id))
+        await message.answer("❌ Ошибка. Выберите услугу заново. 💫", reply_markup=get_main_menu(user_id))
         await state.clear()
         return
 
-    if selected_service == "🎤 1 час записи - 500р":
+    if selected_service in ["🎤 1 час записи - 500р", "🎙️ Запись для участников"]:
         time_match = re.search(r'(\d{1,2})-(\d{1,2})', booking_text)
         if not time_match:
-            await message.answer("❌ Неверный формат. Пример: Анна, 31.12, 15-18", reply_markup=get_back_keyboard())
+            await message.answer("❌ Неверный формат. Пример: Анна, 11.08, 15-18 💫", reply_markup=get_back_menu())
             return
+        
         start_hour = int(time_match.group(1))
         end_hour = int(time_match.group(2))
         duration = end_hour - start_hour
+        
         if duration <= 0:
-            await message.answer("❌ Время окончания должно быть позже времени начала.", reply_markup=get_back_keyboard())
+            await message.answer("❌ Время окончания должно быть позже времени начала. ⏰", reply_markup=get_back_menu())
             return
+        
         if user_id in studio_members_ids and 12 <= start_hour < 22 and duration > 4:
-            await message.answer(f"⏰ В дневное время (12:00-22:00) участники могут бронировать максимум 4 часа. Вы выбрали {duration} ч.", reply_markup=get_back_keyboard())
+            await message.answer(
+                f"⏰ В дневное время (12:00-22:00) участники могут бронировать максимум 4 часа. 🔥\n"
+                f"Вы выбрали {duration} ч. Пожалуйста, сократите время. 💫",
+                reply_markup=get_back_menu()
+            )
             return
-        if is_time_conflict(start_hour, end_hour):
-            await message.answer("❌ Это время уже занято другой бронью.", reply_markup=get_back_keyboard())
-            return
+        
+        if is_time_conflict(start_hour, end_hour, user_id):
+            if user_id not in studio_members_ids:
+                pass
+            else:
+                await message.answer("❌ Это время уже занято другой бронью. ⚡", reply_markup=get_back_menu())
+                return
+    
     else:
         date_match = re.search(r'(\d{2}\.\d{2})-(\d{2}\.\d{2})', booking_text)
         if not date_match:
-            await message.answer("❌ Неверный формат. Пример: Анна, 31.12-01.01", reply_markup=get_back_keyboard())
+            await message.answer("❌ Неверный формат. Пример: Анна, 11.08-12.08 💫", reply_markup=get_back_menu())
             return
 
     full_booking = f"{booking_text}, {selected_service}"
     booking_id = str(int(time.time()))
     add_booking(booking_id, full_booking, user_id)
 
-    await message.answer("✅ Бронь сохранена! Спасибо, что выбрали нас ❤️")
+    await message.answer(
+        "✅ Бронь сохранена! 🔥 Спасибо, что выбрали нас ❤️💫",
+        reply_markup=get_main_menu(user_id)
+    )
     await state.clear()
 
     if user_id in studio_members_ids:
@@ -527,20 +712,23 @@ async def save_booking(message: types.Message, state: FSMContext):
         try:
             await bot.send_message(
                 member_id,
-                f"🔔 ТУПЫЕ НИГЕРЫ БРОНЯТ!\n\n{full_booking}\n\n👤 {who_booked}"
+                f"🔔 ТУПЫЕ НИГЕРЫ БРОНЯТ! 🔥\n\n{full_booking}\n\n👤 {who_booked}"
             )
         except:
             pass
-
-    await message.answer("Главное меню:", reply_markup=get_main_keyboard(user_id))
 
 # ==========================================
 # ========== ЗАПУСК ========================
 # ==========================================
 
 async def main():
-    print("🤖 Бот запущен!")
-    print(f"📂 Загружено броней: {len(bookings)}")
+    print("🔥 Бот запущен! 🔥")
+    print(f"📂 Загружено {len(bookings)} броней")
+    
+    if shield is not None:
+        dp.message.middleware(shield)
+        print("🛡️ Антифлуд включен! ⚡")
+    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
