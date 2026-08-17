@@ -16,11 +16,10 @@ import pytz
 # ==========================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = "-1004374514040"          # ID общего чата студии
-YOUR_USER_ID = 1442416548           # Твой Telegram ID (Архив)
-DATA_FILE = "bookings.json"         # Файл для хранения броней
+CHAT_ID = "-1004374514040"
+YOUR_USER_ID = 1442416548
+DATA_FILE = "bookings.json"
 
-# Список участников студии (ID + имена)
 studio_members = {
     1442416548: "Архив",
     8433779133: "Слендер",
@@ -42,7 +41,6 @@ studio_members_ids = list(studio_members.keys())
 # ==========================================
 
 def load_bookings():
-    """Загружает брони из файла при запуске бота"""
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
@@ -52,11 +50,9 @@ def load_bookings():
     return {}
 
 def save_bookings(bookings):
-    """Сохраняет брони в файл"""
     with open(DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump(bookings, f, ensure_ascii=False, indent=2)
 
-# Загружаем брони при старте
 bookings = load_bookings()
 print(f"📂 Загружено {len(bookings)} броней из файла")
 
@@ -76,35 +72,28 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # ==========================================
-# ========== ФУНКЦИИ ДЛЯ РАБОТЫ С ДАННЫМИ ===
+# ========== ФУНКЦИИ ДЛЯ ДАННЫХ ============
 # ==========================================
 
 def get_all_bookings():
-    """Возвращает все брони в виде списка для отображения"""
     result = []
     for booking_id, booking_data in bookings.items():
-        # Формат: "Имя, Дата, Время, Услуга|user_id"
         parts = booking_data.split('|')
         data = parts[0] if parts else booking_data
         user_id = parts[1] if len(parts) > 1 else "0"
-        
         name_match = re.search(r'^([^,]+)', data)
         client_name = name_match.group(1).strip() if name_match else "Не указан"
-        
         service_match = re.search(r',\s*(.+)$', data)
         service = service_match.group(1).strip() if service_match else "Не указана"
-        
         now = datetime.datetime.now(pytz.timezone('Europe/Moscow')).strftime("%Y-%m-%d %H:%M")
         result.append([booking_id, now, client_name, service, data, user_id])
     return result
 
 def add_booking(booking_id: str, full_booking: str, user_id: int):
-    """Добавляет бронь в словарь и сохраняет в файл"""
     bookings[booking_id] = full_booking + f"|{user_id}"
     save_bookings(bookings)
 
 def delete_booking(booking_id: str) -> bool:
-    """Удаляет бронь"""
     if booking_id in bookings:
         del bookings[booking_id]
         save_bookings(bookings)
@@ -112,7 +101,6 @@ def delete_booking(booking_id: str) -> bool:
     return False
 
 def get_user_bookings(user_id: int):
-    """Возвращает брони пользователя"""
     result = []
     for booking_id, booking_data in bookings.items():
         if f"|{user_id}" in booking_data:
@@ -121,7 +109,6 @@ def get_user_bookings(user_id: int):
     return result
 
 def get_all_active_bookings():
-    """Возвращает актуальные брони (сегодня и позже)"""
     today = datetime.datetime.now(pytz.timezone('Europe/Moscow')).strftime("%d.%m")
     active = []
     for booking_id, booking_data in bookings.items():
@@ -139,7 +126,6 @@ def get_all_active_bookings():
     return active
 
 def update_booking(booking_id: str, new_booking_text: str) -> bool:
-    """Обновляет бронь"""
     if booking_id in bookings:
         old_data = bookings[booking_id]
         user_id = old_data.split('|')[1] if '|' in old_data else "0"
@@ -149,7 +135,6 @@ def update_booking(booking_id: str, new_booking_text: str) -> bool:
     return False
 
 def is_time_conflict(new_start: int, new_end: int, exclude_booking_id: str = None) -> bool:
-    """Проверяет пересечение времени с другими бронями"""
     for booking_id, booking_data in bookings.items():
         if exclude_booking_id and booking_id == exclude_booking_id:
             continue
@@ -217,15 +202,33 @@ async def start_command(message: types.Message):
     )
 
 # ==========================================
-# ========== ОБРАБОТЧИК КНОПОК =============
+# ========== ОБРАБОТЧИК ВСЕХ СООБЩЕНИЙ =====
 # ==========================================
 
-@dp.message(lambda message: message.text and not message.text.startswith('/'))
-async def handle_messages(message: types.Message, state: FSMContext):
+@dp.message()
+async def handle_all_messages(message: types.Message, state: FSMContext):
     text = message.text
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
+    
+    # Проверяем, есть ли состояние ожидания ввода
+    current_state = await state.get_state()
+    
+    # ===== ЕСЛИ ПОЛЬЗОВАТЕЛЬ ВВОДИТ БРОНЬ =====
+    if current_state == BookingStates.waiting_for_booking:
+        await save_booking(message, state)
+        return
+    
+    # ===== ЕСЛИ ПОЛЬЗОВАТЕЛЬ ПРОДЛЕВАЕТ БРОНЬ =====
+    if current_state == BookingStates.waiting_for_extend:
+        await extend_booking(message, state)
+        return
 
+    # ==========================================
+    # ========== ОБЫЧНЫЕ КНОПКИ ================
+    # ==========================================
+
+    # === КНОПКА "💰 Цены" ===
     if text == "💰 Цены":
         await message.answer(
             "💲 Наши цены 💲\n\n"
@@ -237,12 +240,14 @@ async def handle_messages(message: types.Message, state: FSMContext):
             "Для бронирования нажми кнопку '📅 Забронировать'"
         )
 
+    # === КНОПКА "📅 Забронировать" ===
     elif text == "📅 Забронировать":
         await message.answer(
             "💲 Выбери услугу для бронирования 💲\n\nНажми на кнопку с нужной услугой:",
             reply_markup=get_services_keyboard()
         )
 
+    # === ВЫБОР УСЛУГИ ===
     elif text in ["🎤 1 час записи - 500р", "🌙 Ночь на студии - 3000р"]:
         await state.update_data(selected_service=text)
         if text == "🎤 1 час записи - 500р":
@@ -259,8 +264,10 @@ async def handle_messages(message: types.Message, state: FSMContext):
                 "Имя, Дата начала-Дата окончания (ДД.ММ-ДД.ММ)\n\n"
                 "Пример: Анна, 31.12-01.01"
             )
+        # Устанавливаем состояние ожидания ввода
         await state.set_state(BookingStates.waiting_for_booking)
 
+    # === ВЫБОР УСЛУГИ (сведение/трек/клип) ===
     elif text in ["🎧 Сведение + мастеринг - 1500р", "🎵 Трек под ключ - 3000р", "🎬 Съемка клипа + монтаж - 5500р"]:
         await message.answer(
             f"✅ Выбрана услуга: {text}\n\n"
@@ -271,6 +278,7 @@ async def handle_messages(message: types.Message, state: FSMContext):
         )
         await message.answer("Главное меню:", reply_markup=get_main_keyboard(user_id))
 
+    # === КНОПКА "📋 Мои брони" ===
     elif text == "📋 Мои брони":
         user_bookings = get_user_bookings(user_id)
         if not user_bookings:
@@ -284,12 +292,14 @@ async def handle_messages(message: types.Message, state: FSMContext):
                     reply_markup=get_booking_actions(booking_id)
                 )
 
+    # === КНОПКА "ℹ️ Информация" ===
     elif text == "ℹ️ Информация":
         await message.answer(
             "📋 Раздел информации:\n\nВыберите, что вас интересует:",
             reply_markup=get_info_keyboard()
         )
 
+    # === КНОПКА "📖 О нас" ===
     elif text == "📖 О нас":
         await message.answer(
             "🎵 О студии 'Бывшая и таблетки'\n\n"
@@ -299,6 +309,7 @@ async def handle_messages(message: types.Message, state: FSMContext):
             "Ждём вас! 🎧"
         )
 
+    # === КНОПКА "🎛️ Наша аппаратура" ===
     elif text == "🎛️ Наша аппаратура":
         await message.answer(
             "🎛️ АППАРАТУРА СТУДИИ\n\n"
@@ -311,6 +322,7 @@ async def handle_messages(message: types.Message, state: FSMContext):
             "📶 Быстрый Wi-Fi — если потребуется что-то докачать"
         )
 
+    # === КНОПКА "📋 Все записи" ===
     elif text == "📋 Все записи":
         if user_id not in studio_members_ids:
             await message.answer("⛔ У вас нет доступа к этой команде.")
@@ -324,10 +336,11 @@ async def handle_messages(message: types.Message, state: FSMContext):
                 result += f"{i}. {row[4]}\n\n"
             await message.answer(result)
 
+    # === ПРОДЛЕНИЕ БРОНИ ===
     elif text.startswith("⏳ Продлить"):
         booking_id = text.replace("⏳ Продлить ", "").strip()
         if booking_id not in bookings:
-            await message.answer("⛔ Это не ваша бронь или она не найдена.")
+            await message.answer("❌ Бронь не найдена.")
             return
         if f"|{user_id}" not in bookings[booking_id]:
             await message.answer("⛔ Это не ваша бронь.")
@@ -341,6 +354,7 @@ async def handle_messages(message: types.Message, state: FSMContext):
         await state.update_data(extend_booking_id=booking_id)
         await state.set_state(BookingStates.waiting_for_extend)
 
+    # === ОТМЕНА БРОНИ ===
     elif text.startswith("❌ Отменить"):
         booking_id = text.replace("❌ Отменить ", "").strip()
         if booking_id not in bookings:
@@ -358,17 +372,21 @@ async def handle_messages(message: types.Message, state: FSMContext):
             await message.answer("❌ Ошибка при отмене брони.")
         await message.answer("Главное меню:", reply_markup=get_main_keyboard(user_id))
 
+    # === НАЗАД В МЕНЮ ===
     elif text == "🔙 Назад в меню":
         await message.answer("Главное меню:", reply_markup=get_main_keyboard(user_id))
 
+    # === НЕИЗВЕСТНАЯ КОМАНДА ===
     else:
-        await message.answer("❌ Неизвестная команда. Используйте кнопки меню.", reply_markup=get_main_keyboard(user_id))
+        await message.answer(
+            "❌ Неизвестная команда. Используйте кнопки меню.",
+            reply_markup=get_main_keyboard(user_id)
+        )
 
 # ==========================================
 # ========== СОХРАНЕНИЕ БРОНИ ==============
 # ==========================================
 
-@dp.message(BookingStates.waiting_for_booking)
 async def save_booking(message: types.Message, state: FSMContext):
     booking_text = message.text
     user_id = message.from_user.id
@@ -377,7 +395,7 @@ async def save_booking(message: types.Message, state: FSMContext):
     selected_service = data.get("selected_service")
 
     if not selected_service:
-        await message.answer("❌ Ошибка. Выберите услугу заново.")
+        await message.answer("❌ Ошибка. Выберите услугу заново.", reply_markup=get_main_keyboard(user_id))
         await state.clear()
         return
 
@@ -411,29 +429,14 @@ async def save_booking(message: types.Message, state: FSMContext):
     await message.answer("✅ Бронь сохранена! Спасибо, что выбрали нас ❤️")
     await state.clear()
 
-    # ========== КТО ЗАБРОНИРОВАЛ ==========
     if user_id in studio_members_ids:
         member_name = studio_members.get(user_id, "Участник")
         who_booked = f"Участник: {member_name} (@{username})"
     else:
         who_booked = f"Клиент: {message.from_user.first_name} (@{username})"
 
-    # ========== УВЕДОМЛЕНИЯ ==========
-    # 1. В общий чат студии
-    await bot.send_message(
-        CHAT_ID,
-        f"🔔 НОВАЯ БРОНЬ!\n\n{full_booking}\n\n👤 {who_booked}"
-    )
-    
-    # 2. ЛИЧНО ТЕБЕ (Архив)
-    await bot.send_message(
-        YOUR_USER_ID,
-        f"🔔 ТЕБЕ НОВАЯ ЗАПИСЬ!\n\n"
-        f"👤 {who_booked}\n"
-        f"📋 Данные: {booking_text}\n"
-        f"🎵 Услуга: {selected_service}\n"
-        f"🆔 ID брони: {booking_id}"
-    )
+    await bot.send_message(CHAT_ID, f"🔔 НОВАЯ БРОНЬ!\n\n{full_booking}\n\n👤 {who_booked}")
+    await bot.send_message(YOUR_USER_ID, f"🔔 ТЕБЕ НОВАЯ ЗАПИСЬ!\n\n👤 {who_booked}\n📋 Данные: {booking_text}\n🎵 Услуга: {selected_service}\n🆔 ID брони: {booking_id}")
 
     await message.answer("Главное меню:", reply_markup=get_main_keyboard(user_id))
 
@@ -441,18 +444,17 @@ async def save_booking(message: types.Message, state: FSMContext):
 # ========== ПРОДЛЕНИЕ БРОНИ ===============
 # ==========================================
 
-@dp.message(BookingStates.waiting_for_extend)
 async def extend_booking(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.username or message.from_user.first_name
     data = await state.get_data()
     booking_id = data.get("extend_booking_id")
     if not booking_id:
-        await message.answer("❌ Ошибка. Попробуйте снова.")
+        await message.answer("❌ Ошибка. Попробуйте снова.", reply_markup=get_main_keyboard(user_id))
         await state.clear()
         return
     if booking_id not in bookings:
-        await message.answer("❌ Бронь не найдена.")
+        await message.answer("❌ Бронь не найдена.", reply_markup=get_main_keyboard(user_id))
         await state.clear()
         return
     old_booking = bookings[booking_id].split('|')[0]
@@ -475,7 +477,7 @@ async def extend_booking(message: types.Message, state: FSMContext):
     await message.answer("Главное меню:", reply_markup=get_main_keyboard(user_id))
 
 # ==========================================
-# ========== ЗАПУСК БОТА ===================
+# ========== ЗАПУСК ========================
 # ==========================================
 
 async def main():
