@@ -378,13 +378,6 @@ async def start_command(message: types.Message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name
     
-    # Убираем старые Reply-кнопки
-    await message.answer(
-        "Обновляем меню...",
-        reply_markup=ReplyKeyboardRemove()
-    )
-    
-    # Отправляем главное меню с Inline-кнопками
     await message.answer(
         f"Привет, {first_name}! Очень рады, что ты выбрал именно нас. Надеюсь, ты будешь читать про бывшую и таблетки 😄",
         reply_markup=get_main_menu(user_id)
@@ -400,14 +393,14 @@ async def booking_command(message: types.Message):
     user_bookings = get_user_bookings(user_id)
     
     if not user_bookings:
-        await message.answer("📭 У вас нет активных броней.", reply_markup=ReplyKeyboardRemove())
+        await message.answer("📭 У вас нет активных броней.")
         return
     
     text = "📋 ВАШИ БРОНИ:\n\n"
     for booking_id, booking_data in user_bookings:
         text += f"• {booking_data}\n\n"
     
-    await message.answer(text, reply_markup=ReplyKeyboardRemove())
+    await message.answer(text)
 
 # ==========================================
 # ========== КОМАНДА /QUESTION =============
@@ -418,7 +411,7 @@ async def question_command(message: types.Message):
     user_id = message.from_user.id
     
     if user_id not in questions_storage:
-        await message.answer("📭 У вас нет вопросов.", reply_markup=ReplyKeyboardRemove())
+        await message.answer("📭 У вас нет вопросов.")
         return
     
     text = "📋 ВАШИ ВОПРОСЫ И ОТВЕТЫ:\n\n"
@@ -429,7 +422,7 @@ async def question_command(message: types.Message):
         else:
             text += f"   ⏳ Ожидает ответа...\n\n"
     
-    await message.answer(text, reply_markup=ReplyKeyboardRemove())
+    await message.answer(text)
 
 # ==========================================
 # ========== НАСТРОЙКА МЕНЮ КОМАНД =========
@@ -455,8 +448,9 @@ async def handle_callback(callback: CallbackQuery, state: FSMContext):
     
     # ===== ГЛАВНОЕ МЕНЮ =====
     if data == "main_menu":
+        first_name = callback.from_user.first_name
         await callback.message.edit_text(
-            "Главное меню:",
+            f"Привет, {first_name}! Очень рады, что ты выбрал именно нас. Надеюсь, ты будешь читать про бывшую и таблетки 😄",
             reply_markup=get_main_menu(user_id)
         )
         await callback.answer()
@@ -669,6 +663,7 @@ async def handle_callback(callback: CallbackQuery, state: FSMContext):
         booking_data = bookings[booking_id].split('|')[0]
         delete_booking(booking_id)
         
+        first_name = callback.from_user.first_name
         await callback.message.edit_text(
             f"❌ Бронь отменена!\n\n{booking_data}",
             reply_markup=get_main_menu(user_id)
@@ -936,6 +931,7 @@ async def handle_callback(callback: CallbackQuery, state: FSMContext):
                     booking_data = bookings[booking_id].split('|')[0]
                     delete_booking(booking_id)
                     
+                    first_name = callback.from_user.first_name
                     await callback.message.edit_text(
                         f"❌ Бронь отменена!\n\n{booking_data}",
                         reply_markup=get_main_menu(user_id)
@@ -955,8 +951,9 @@ async def handle_callback(callback: CallbackQuery, state: FSMContext):
                     return
         
         await state.clear()
+        first_name = callback.from_user.first_name
         await callback.message.edit_text(
-            "Главное меню:",
+            f"Привет, {first_name}! Очень рады, что ты выбрал именно нас. Надеюсь, ты будешь читать про бывшую и таблетки 😄",
             reply_markup=get_main_menu(user_id)
         )
         await callback.answer()
