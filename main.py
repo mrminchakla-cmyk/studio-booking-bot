@@ -362,7 +362,6 @@ def get_back_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_payment_keyboard(booking_id: str) -> InlineKeyboardMarkup:
-    """Клавиатура для клиента — кнопки 'Я оплатил' и 'Отменить'"""
     buttons = [
         [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"pay_{booking_id}")],
         [InlineKeyboardButton(text="❌ Отменить бронь", callback_data=f"cancel_{booking_id}")]
