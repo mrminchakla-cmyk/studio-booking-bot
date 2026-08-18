@@ -901,9 +901,9 @@ async def cmd_question(message: types.Message):
 
 async def set_commands():
     await bot.set_my_commands([
-        BotCommand("start", "Главное меню"),
-        BotCommand("booking", "Мои брони"),
-        BotCommand("question", "Мои вопросы")
+        types.BotCommand(command="start", description="Главное меню"),
+        types.BotCommand(command="booking", description="Мои брони"),
+        types.BotCommand(command="question", description="Мои вопросы")
     ])
 
 # ==========================================
