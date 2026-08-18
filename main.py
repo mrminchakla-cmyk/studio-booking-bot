@@ -367,7 +367,7 @@ async def start_command(message: types.Message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name
     
-    # Убираем старые кнопки и отправляем ОДНО сообщение с приветствием
+    # ОДНО сообщение с приветствием и меню (без лишних слов)
     await message.answer(
         f"Привет, {first_name}! Очень рады, что ты выбрал именно нас. Надеюсь, ты будешь читать про бывшую и таблетки 😄",
         reply_markup=get_main_menu(user_id)
