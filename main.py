@@ -377,6 +377,13 @@ async def start_command(message: types.Message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name
     
+    # ===== УБИРАЕМ СТАРЫЕ REPLY-КНОПКИ =====
+    await message.answer(
+        "✅",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    
+    # ===== ОДНО ПРИВЕТСТВИЕ + МЕНЮ =====
     await message.answer(
         f"Привет, {first_name}! Очень рады, что ты выбрал именно нас. Надеюсь, ты будешь читать про бывшую и таблетки 😄",
         reply_markup=get_main_menu(user_id)
