@@ -31,13 +31,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 DATA_FILE = "bookings.json"
 YOUR_USER_ID = 1442416548
 
-# Реквизиты для предоплаты
 PAYMENT_DETAILS = "2204320394834453 Озон Банк"
 
-# Хранилище вопросов-ответов
 questions_storage = {}
-
-# Хранилище броней, ожидающих подтверждения
 pending_bookings = {}
 
 studio_members = {
@@ -186,10 +182,6 @@ def is_time_conflict(new_start: int, new_end: int, user_id: int, exclude_booking
                         return True
     return False
 
-# ==========================================
-# ========== ФУНКЦИЯ ДЛЯ РАСЧЁТА ПРЕДОПЛАТЫ =
-# ==========================================
-
 def calculate_deposit(booking_text: str, selected_service: str) -> tuple:
     total_price = 0
     deposit = 0
@@ -306,7 +298,6 @@ def get_main_menu(user_id: int) -> InlineKeyboardMarkup:
 def get_services_menu(user_id: int) -> InlineKeyboardMarkup:
     buttons = []
     
-    # Для участников (кроме Архива) — ночь + запись для участников
     if user_id in studio_members_ids and user_id != YOUR_USER_ID:
         buttons = [
             [InlineKeyboardButton(text="🎤 Запись", callback_data="service_record")],
@@ -314,7 +305,6 @@ def get_services_menu(user_id: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🎙️ Запись для участников", callback_data="service_member")]
         ]
     else:
-        # Для клиентов и Архива — все услуги
         buttons = [
             [InlineKeyboardButton(text="🎤 Запись", callback_data="service_record")],
             [InlineKeyboardButton(text="🌙 ночь на студии", callback_data="service_night")],
@@ -377,13 +367,12 @@ async def start_command(message: types.Message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name
     
-    # ===== УБИРАЕМ СТАРЫЕ REPLY-КНОПКИ =====
+    # ===== ЖЕСТКО УБИРАЕМ СТАРЫЕ КНОПКИ =====
     await message.answer(
-        "✅",
+        "Главное меню обновлено",
         reply_markup=ReplyKeyboardRemove()
     )
     
-    # ===== ОДНО ПРИВЕТСТВИЕ + МЕНЮ =====
     await message.answer(
         f"Привет, {first_name}! Очень рады, что ты выбрал именно нас. Надеюсь, ты будешь читать про бывшую и таблетки 😄",
         reply_markup=get_main_menu(user_id)
