@@ -8,7 +8,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BotCommand, BotCommandScopeDefault, ReplyKeyboardRemove
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardRemove
 import pytz
 
 # ==========================================
@@ -20,7 +20,6 @@ DATA_FILE = "bookings.json"
 YOUR_USER_ID = 1442416548
 PAYMENT_DETAILS = "2204320394834453 Озон Банк"
 
-# Участники студии
 studio_members = {
     1442416548: "Архив",
     8433779133: "Слендер",
@@ -37,7 +36,6 @@ studio_members = {
 }
 studio_members_ids = list(studio_members.keys())
 
-# Хранилище
 questions_storage = {}
 pending_bookings = {}
 
@@ -181,76 +179,76 @@ def main_menu(user_id):
     buttons = []
     if user_id in studio_members_ids and user_id != YOUR_USER_ID:
         buttons = [
-            [InlineKeyboardButton("🎙️ Забронировать", callback_data="book_member")],
-            [InlineKeyboardButton("📋 Мои брони", callback_data="my_bookings")],
-            [InlineKeyboardButton("📊 Все записи", callback_data="all_bookings")]
+            [InlineKeyboardButton(text="🎙️ Забронировать", callback_data="book_member")],
+            [InlineKeyboardButton(text="📋 Мои брони", callback_data="my_bookings")],
+            [InlineKeyboardButton(text="📊 Все записи", callback_data="all_bookings")]
         ]
     else:
         buttons = [
-            [InlineKeyboardButton("🎙️ Забронировать", callback_data="book")],
-            [InlineKeyboardButton("📋 Мои брони", callback_data="my_bookings")],
-            [InlineKeyboardButton("💰 Прайс", callback_data="prices")],
-            [InlineKeyboardButton("ℹ️ Информация", callback_data="info")],
-            [InlineKeyboardButton("❓ Вопросы", callback_data="questions")]
+            [InlineKeyboardButton(text="🎙️ Забронировать", callback_data="book")],
+            [InlineKeyboardButton(text="📋 Мои брони", callback_data="my_bookings")],
+            [InlineKeyboardButton(text="💰 Прайс", callback_data="prices")],
+            [InlineKeyboardButton(text="ℹ️ Информация", callback_data="info")],
+            [InlineKeyboardButton(text="❓ Вопросы", callback_data="questions")]
         ]
         if user_id in studio_members_ids:
-            buttons.append([InlineKeyboardButton("📊 Все записи", callback_data="all_bookings")])
+            buttons.append([InlineKeyboardButton(text="📊 Все записи", callback_data="all_bookings")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def services_menu(user_id):
     buttons = []
     if user_id in studio_members_ids and user_id != YOUR_USER_ID:
         buttons = [
-            [InlineKeyboardButton("🎤 Запись", callback_data="service_record")],
-            [InlineKeyboardButton("🌙 ночь на студии", callback_data="service_night")],
-            [InlineKeyboardButton("🎙️ Запись для участников", callback_data="service_member")]
+            [InlineKeyboardButton(text="🎤 Запись", callback_data="service_record")],
+            [InlineKeyboardButton(text="🌙 ночь на студии", callback_data="service_night")],
+            [InlineKeyboardButton(text="🎙️ Запись для участников", callback_data="service_member")]
         ]
     else:
         buttons = [
-            [InlineKeyboardButton("🎤 Запись", callback_data="service_record")],
-            [InlineKeyboardButton("🌙 ночь на студии", callback_data="service_night")],
-            [InlineKeyboardButton("🎧 mix & master", callback_data="service_master")],
-            [InlineKeyboardButton("🎵 трек под ключ", callback_data="service_track")],
-            [InlineKeyboardButton("🎬 Клип", callback_data="service_clip")]
+            [InlineKeyboardButton(text="🎤 Запись", callback_data="service_record")],
+            [InlineKeyboardButton(text="🌙 ночь на студии", callback_data="service_night")],
+            [InlineKeyboardButton(text="🎧 mix & master", callback_data="service_master")],
+            [InlineKeyboardButton(text="🎵 трек под ключ", callback_data="service_track")],
+            [InlineKeyboardButton(text="🎬 Клип", callback_data="service_clip")]
         ]
         if user_id in studio_members_ids:
-            buttons.append([InlineKeyboardButton("🎙️ Запись для участников", callback_data="service_member")])
-    buttons.append([InlineKeyboardButton("🔙 Назад", callback_data="main_menu")])
+            buttons.append([InlineKeyboardButton(text="🎙️ Запись для участников", callback_data="service_member")])
+    buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def info_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton("🏠 О нас", callback_data="about")],
-        [InlineKeyboardButton("🎛️ Аппаратура", callback_data="equipment")],
-        [InlineKeyboardButton("🔙 Назад", callback_data="main_menu")]
+        [InlineKeyboardButton(text="🏠 О нас", callback_data="about")],
+        [InlineKeyboardButton(text="🎛️ Аппаратура", callback_data="equipment")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")]
     ])
 
 def booking_actions(booking_id):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton("⏳ +10 мин", callback_data=f"extend_{booking_id}_10")],
-        [InlineKeyboardButton("⏳ +30 мин", callback_data=f"extend_{booking_id}_30")],
-        [InlineKeyboardButton("⏳ +1 час", callback_data=f"extend_{booking_id}_60")],
-        [InlineKeyboardButton("⏳ +2 часа", callback_data=f"extend_{booking_id}_120")],
-        [InlineKeyboardButton("⏳ +3 часа", callback_data=f"extend_{booking_id}_180")],
-        [InlineKeyboardButton("❌ Отменить", callback_data=f"cancel_{booking_id}")],
-        [InlineKeyboardButton("🔙 Назад", callback_data="main_menu")]
+        [InlineKeyboardButton(text="⏳ +10 мин", callback_data=f"extend_{booking_id}_10")],
+        [InlineKeyboardButton(text="⏳ +30 мин", callback_data=f"extend_{booking_id}_30")],
+        [InlineKeyboardButton(text="⏳ +1 час", callback_data=f"extend_{booking_id}_60")],
+        [InlineKeyboardButton(text="⏳ +2 часа", callback_data=f"extend_{booking_id}_120")],
+        [InlineKeyboardButton(text="⏳ +3 часа", callback_data=f"extend_{booking_id}_180")],
+        [InlineKeyboardButton(text="❌ Отменить", callback_data=f"cancel_{booking_id}")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")]
     ])
 
 def back_button():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton("🔙 Назад", callback_data="main_menu")]
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")]
     ])
 
 def payment_keyboard(booking_id):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton("✅ Я оплатил", callback_data=f"pay_{booking_id}")],
-        [InlineKeyboardButton("❌ Отменить бронь", callback_data=f"cancel_{booking_id}")]
+        [InlineKeyboardButton(text="✅ Я оплатил", callback_data=f"pay_{booking_id}")],
+        [InlineKeyboardButton(text="❌ Отменить бронь", callback_data=f"cancel_{booking_id}")]
     ])
 
 def confirm_cancel(booking_id):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton("✅ Да, отменить", callback_data=f"confirm_cancel_{booking_id}")],
-        [InlineKeyboardButton("❌ Нет, вернуться", callback_data=f"back_to_booking_{booking_id}")]
+        [InlineKeyboardButton(text="✅ Да, отменить", callback_data=f"confirm_cancel_{booking_id}")],
+        [InlineKeyboardButton(text="❌ Нет, вернуться", callback_data=f"back_to_booking_{booking_id}")]
     ])
 
 # ==========================================
@@ -276,7 +274,6 @@ async def buttons(callback: CallbackQuery, state: FSMContext):
     data = callback.data
     username = callback.from_user.username or callback.from_user.first_name
 
-    # ===== ГЛАВНОЕ МЕНЮ =====
     if data == "main_menu":
         await callback.message.edit_text(
             f"Привет, {callback.from_user.first_name}! Очень рады, что ты выбрал именно нас. Надеюсь, ты будешь читать про бывшую и таблетки 😄",
@@ -285,7 +282,6 @@ async def buttons(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== ЗАБРОНИРОВАТЬ =====
     if data == "book" or data == "book_member":
         await callback.message.edit_text(
             "Выбери услугу:",
@@ -294,7 +290,6 @@ async def buttons(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== ПРАЙС =====
     if data == "prices":
         await callback.message.edit_text(
             "💰 ПРАЙС-ЛИСТ 💰\n\n"
@@ -308,7 +303,6 @@ async def buttons(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== ИНФОРМАЦИЯ =====
     if data == "info":
         await callback.message.edit_text(
             "Информация:",
@@ -341,7 +335,6 @@ async def buttons(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== МОИ БРОНИ =====
     if data == "my_bookings":
         user_bookings = get_user_bookings(user_id)
         if not user_bookings:
@@ -374,10 +367,10 @@ async def buttons(callback: CallbackQuery, state: FSMContext):
                     service_short = service_str[:15]
                 
                 btns.append([InlineKeyboardButton(
-                    f"📅 {date_str} | {service_short}",
+                    text=f"📅 {date_str} | {service_short}",
                     callback_data=f"booking_{booking_id}"
                 )])
-            btns.append([InlineKeyboardButton("🔙 Назад", callback_data="main_menu")])
+            btns.append([InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")])
             await callback.message.edit_text(
                 text,
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=btns)
@@ -385,7 +378,6 @@ async def buttons(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== ВСЕ ЗАПИСИ =====
     if data == "all_bookings":
         if user_id not in studio_members_ids:
             await callback.answer("⛔ Нет доступа")
@@ -407,7 +399,6 @@ async def buttons(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== ВОПРОСЫ =====
     if data == "questions":
         await state.set_state(BookingStates.waiting_for_question)
         await callback.message.edit_text(
@@ -417,7 +408,6 @@ async def buttons(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== ВЫБОР УСЛУГИ =====
     if data.startswith("service_"):
         services = {
             "service_record": "🎤 Запись - 500р",
@@ -460,7 +450,6 @@ async def buttons(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== БРОНЬ (управление) =====
     if data.startswith("booking_"):
         booking_id = data.replace("booking_", "")
         booking_data = None
@@ -479,7 +468,6 @@ async def buttons(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== ПРОДЛЕНИЕ =====
     if data.startswith("extend_"):
         parts = data.split("_")
         booking_id = parts[1]
@@ -526,7 +514,6 @@ async def buttons(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== ОТМЕНА =====
     if data.startswith("cancel_"):
         booking_id = data.replace("cancel_", "")
         await callback.message.edit_text(
@@ -578,7 +565,6 @@ async def buttons(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== ОПЛАТА =====
     if data.startswith("pay_"):
         booking_id = data.replace("pay_", "")
         if booking_id not in bookings:
@@ -596,7 +582,6 @@ async def buttons(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # ===== НАЗАД =====
     if data == "back":
         await state.clear()
         await callback.message.edit_text(
@@ -616,7 +601,6 @@ async def text_messages(message: types.Message, state: FSMContext):
     text = message.text
     state_now = await state.get_state()
 
-    # ===== ВОПРОС =====
     if state_now == BookingStates.waiting_for_question:
         question = text
         user_name = message.from_user.full_name or message.from_user.username or "Пользователь"
@@ -628,8 +612,8 @@ async def text_messages(message: types.Message, state: FSMContext):
         questions_storage[user_id_sender][question] = None
         
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton("📩 Ответить в ЛС", url=f"tg://user?id={user_id_sender}")],
-            [InlineKeyboardButton("✍️ Ответить в боте", callback_data=f"answer_question_{user_id_sender}_{question}")]
+            [InlineKeyboardButton(text="📩 Ответить в ЛС", url=f"tg://user?id={user_id_sender}")],
+            [InlineKeyboardButton(text="✍️ Ответить в боте", callback_data=f"answer_question_{user_id_sender}_{question}")]
         ])
         
         await bot.send_message(
@@ -644,7 +628,6 @@ async def text_messages(message: types.Message, state: FSMContext):
         await state.clear()
         return
 
-    # ===== ОТВЕТ АДМИНА =====
     if state_now == BookingStates.waiting_for_answer:
         if user_id != YOUR_USER_ID:
             await message.answer("⛔ Нет прав")
@@ -670,7 +653,6 @@ async def text_messages(message: types.Message, state: FSMContext):
         await state.clear()
         return
 
-    # ===== СКРИНШОТ =====
     if state_now == BookingStates.waiting_for_screenshot:
         if not message.photo:
             await message.answer("📸 Отправьте фото", reply_markup=back_button())
@@ -688,8 +670,8 @@ async def text_messages(message: types.Message, state: FSMContext):
             "photo_id": message.photo[-1].file_id
         }
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton("✅ Подтвердить", callback_data=f"confirm_yes_{booking_id}_{user_id}")],
-            [InlineKeyboardButton("❌ Отклонить", callback_data=f"confirm_no_{booking_id}_{user_id}")]
+            [InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm_yes_{booking_id}_{user_id}")],
+            [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"confirm_no_{booking_id}_{user_id}")]
         ])
         await bot.send_photo(
             chat_id=YOUR_USER_ID,
@@ -704,7 +686,6 @@ async def text_messages(message: types.Message, state: FSMContext):
         await state.clear()
         return
 
-    # ===== БРОНЬ =====
     if state_now == BookingStates.waiting_for_booking:
         data = await state.get_data()
         selected_service = data.get("selected_service")
@@ -713,7 +694,6 @@ async def text_messages(message: types.Message, state: FSMContext):
             await state.clear()
             return
 
-        # Проверка формата
         if "Запись" in selected_service:
             if ',' not in text:
                 await message.answer("❌ Формат: Имя, ДД.ММ, ЧЧ-ЧЧ", reply_markup=back_button())
@@ -747,12 +727,10 @@ async def text_messages(message: types.Message, state: FSMContext):
             await state.clear()
             return
 
-        # Сохраняем бронь
         full_booking = f"{text}, {selected_service}"
         booking_id = str(int(time.time()))
         add_booking(booking_id, full_booking, user_id)
 
-        # Для участников
         if user_id in studio_members_ids:
             await message.answer(
                 "✅ Бронь сохранена!",
@@ -766,7 +744,6 @@ async def text_messages(message: types.Message, state: FSMContext):
             await state.clear()
             return
 
-        # Для клиентов - предоплата
         total_price, deposit = calculate_deposit(text, selected_service)
         booking_dt = get_booking_datetime(text)
         
