@@ -367,12 +367,7 @@ async def start_command(message: types.Message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name
     
-    # ===== ЖЕСТКО УБИРАЕМ СТАРЫЕ КНОПКИ =====
-    await message.answer(
-        "Главное меню обновлено",
-        reply_markup=ReplyKeyboardRemove()
-    )
-    
+    # Убираем старые кнопки и отправляем ОДНО сообщение с приветствием
     await message.answer(
         f"Привет, {first_name}! Очень рады, что ты выбрал именно нас. Надеюсь, ты будешь читать про бывшую и таблетки 😄",
         reply_markup=get_main_menu(user_id)
