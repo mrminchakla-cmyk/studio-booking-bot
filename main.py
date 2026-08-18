@@ -8,7 +8,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BotCommand, BotCommandScopeDefault
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, BotCommand, BotCommandScopeDefault, ReplyKeyboardRemove
 import pytz
 
 # ==========================================
@@ -369,14 +369,6 @@ def get_payment_keyboard(booking_id: str) -> InlineKeyboardMarkup:
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
-def get_confirm_keyboard(booking_id: str, user_id: int) -> InlineKeyboardMarkup:
-    """Клавиатура для админа — подтвердить/отклонить"""
-    buttons = [
-        [InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm_yes_{booking_id}_{user_id}")],
-        [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"confirm_no_{booking_id}_{user_id}")]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
 # ==========================================
 # ========== КОМАНДА /START ================
 # ==========================================
@@ -386,6 +378,13 @@ async def start_command(message: types.Message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name
     
+    # Убираем старые Reply-кнопки
+    await message.answer(
+        "Обновляем меню...",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    
+    # Отправляем главное меню с Inline-кнопками
     await message.answer(
         f"Привет, {first_name}! Очень рады, что ты выбрал именно нас. Надеюсь, ты будешь читать про бывшую и таблетки 😄",
         reply_markup=get_main_menu(user_id)
@@ -401,14 +400,14 @@ async def booking_command(message: types.Message):
     user_bookings = get_user_bookings(user_id)
     
     if not user_bookings:
-        await message.answer("У вас нет активных броней.")
+        await message.answer("📭 У вас нет активных броней.", reply_markup=ReplyKeyboardRemove())
         return
     
     text = "📋 ВАШИ БРОНИ:\n\n"
     for booking_id, booking_data in user_bookings:
         text += f"• {booking_data}\n\n"
     
-    await message.answer(text)
+    await message.answer(text, reply_markup=ReplyKeyboardRemove())
 
 # ==========================================
 # ========== КОМАНДА /QUESTION =============
@@ -419,7 +418,7 @@ async def question_command(message: types.Message):
     user_id = message.from_user.id
     
     if user_id not in questions_storage:
-        await message.answer("У вас нет вопросов.")
+        await message.answer("📭 У вас нет вопросов.", reply_markup=ReplyKeyboardRemove())
         return
     
     text = "📋 ВАШИ ВОПРОСЫ И ОТВЕТЫ:\n\n"
@@ -430,7 +429,7 @@ async def question_command(message: types.Message):
         else:
             text += f"   ⏳ Ожидает ответа...\n\n"
     
-    await message.answer(text)
+    await message.answer(text, reply_markup=ReplyKeyboardRemove())
 
 # ==========================================
 # ========== НАСТРОЙКА МЕНЮ КОМАНД =========
@@ -454,6 +453,7 @@ async def handle_callback(callback: CallbackQuery, state: FSMContext):
     username = callback.from_user.username or callback.from_user.first_name
     data = callback.data
     
+    # ===== ГЛАВНОЕ МЕНЮ =====
     if data == "main_menu":
         await callback.message.edit_text(
             "Главное меню:",
@@ -529,7 +529,7 @@ async def handle_callback(callback: CallbackQuery, state: FSMContext):
         user_bookings = get_user_bookings(user_id)
         if not user_bookings:
             await callback.message.edit_text(
-                "У вас нет активных броней.",
+                "📭 У вас нет активных броней.",
                 reply_markup=get_back_menu()
             )
         else:
@@ -576,7 +576,7 @@ async def handle_callback(callback: CallbackQuery, state: FSMContext):
         all_bookings = get_all_active_bookings()
         if not all_bookings:
             await callback.message.edit_text(
-                "Нет актуальных броней.",
+                "📭 Нет актуальных броней.",
                 reply_markup=get_back_menu()
             )
         else:
@@ -654,7 +654,7 @@ async def handle_callback(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
     
-    # === КЛИЕНТ ОТМЕНЯЕТ БРОНЬ ДО ОПЛАТЫ (сразу, без подтверждения) ===
+    # === КЛИЕНТ ОТМЕНЯЕТ БРОНЬ ДО ОПЛАТЫ ===
     if data.startswith("cancel_") and user_id not in studio_members_ids:
         booking_id = data.replace("cancel_", "")
         
